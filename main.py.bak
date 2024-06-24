@@ -1,0 +1,87 @@
+import serial
+import time
+import struct
+
+def try_ports():
+    ports = [
+        '/dev/ttyS0', '/dev/ttyS1', '/dev/ttyS2', '/dev/ttyS3', '/dev/ttyS4',
+        'COM0', 'COM1', 'COM2', 'COM3', 'COM4'
+    ]
+    for port in ports:
+        try:
+            # Initialize serial connection
+            ser = serial.Serial(
+                port=port,
+                baudrate=250000,  # Ensure this matches the device settings
+                parity=serial.PARITY_NONE,
+                stopbits=serial.STOPBITS_ONE,
+                bytesize=serial.EIGHTBITS,
+                timeout=1  # Adjust as needed
+            )
+            print(f"Successfully connected to {port}")
+            return ser
+        except serial.SerialException as e:
+            print(f"Serial error on port {port}: {e}")
+        except Exception as e:
+            print(f"General error on port {port}: {e}")
+
+    raise Exception("Could not connect to any port")
+
+def calculate_crc(data):
+    # CRC calculation placeholder function, replace with actual CRC-16-CCITT implementation
+    crc = 0xFFFF
+    for byte in data:
+        crc ^= byte << 8
+        for _ in range(8):
+            if crc & 0x8000:
+                crc = (crc << 1) ^ 0x1021
+            else:
+                crc <<= 1
+    return crc & 0xFFFF
+
+def send_initialization_commands(ser):
+    # Construct the read command frame
+    initialization_byte = 0x80
+    device_id_address = 0x00
+    register_address = 0x0215
+    data_length = 0x0B  # Read 12 bytes
+
+    # Create the command frame
+    command_frame = struct.pack('>BHBH', initialization_byte, device_id_address, register_address, data_length)
+    crc = calculate_crc(command_frame)
+    command_frame += struct.pack('>H', crc)
+
+    ser.write(command_frame)
+    print(f"Sent initialization command: {command_frame.hex()}")
+    time.sleep(0.1)  # Wait for the device to process the command
+
+def stream_raw_data(ser):
+    try:
+        print("Starting to stream raw data...")
+        while True:
+            if ser.in_waiting > 0:
+                data = ser.read(ser.in_waiting)
+                print(data)
+            else:
+                # Optional: Sleep a bit to prevent high CPU usage if no data is available
+                time.sleep(0.01)
+    except serial.SerialException as e:
+        print(f"Error reading from serial port: {e}")
+    except KeyboardInterrupt:
+        print("Stopping data read")
+
+if __name__ == "__main__":
+    ser = None  # Initialize ser to ensure it is defined
+    try:
+        ser = try_ports()
+        if ser:
+            send_initialization_commands(ser)  # Send initialization commands if necessary
+            stream_raw_data(ser)
+        else:
+            print("No serial connection established.")
+    except Exception as e:
+        print(f"Error: {e}")
+    finally:
+        if ser and ser.is_open:
+            ser.close()
+            print("Serial port closed.")
